@@ -52,7 +52,9 @@ if ( -e ${scr_swarm} ) then
     \rm ${scr_swarm}
 endif
 
-echo '#\!/bin/tcsh' > ${scr_swarm}
+echo '#\!/bin/sh' > ${scr_swarm}
+# TODO: make it optional to not make it fail as soon as one command fails
+echo 'set -e' >> ${scr_swarm}
 chmod a+x ${scr_swarm}
 
 # --------------------------------------------------------------------------
@@ -116,4 +118,4 @@ echo "++ And start running: ${scr_swarm}"
 #exit 0
 
 ##### add in later ####
-tcsh ${scr_swarm}
+${scr_swarm}
