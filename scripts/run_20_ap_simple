@@ -14,6 +14,8 @@
 set dir_basic     = "$1"
 set dir_output    = "$2"
 
+set bindir        = `dirname "$0"`
+
 if ( "${dir_output}" == "" ) then
     echo "** ERROR: need exactly 2 command line args:"
     echo "       DIR_INPUT  DIR_OUTPUT"
@@ -33,12 +35,12 @@ set dir_output = ${PWD}
 cd -
 
 # upper directories
-set dir_scr       = $PWD
+set dir_scr       = $bindir
 set dir_swarm     = ${dir_output}/code
 
 # running
-set scr_swarm     = ${dir_swarm}/swarm_${cmd}.tcsh
-set scr_cmd       = ${dir_scr}/do_${cmd}.tcsh
+set scr_swarm     = ${dir_swarm}/swarm_${cmd}
+set scr_cmd       = ${dir_scr}/do_${cmd}
 
 # --------------------------------------------------------------------------
 
@@ -49,6 +51,11 @@ set scr_cmd       = ${dir_scr}/do_${cmd}.tcsh
 if ( -e ${scr_swarm} ) then
     \rm ${scr_swarm}
 endif
+
+echo '#\!/bin/sh' > ${scr_swarm}
+# TODO: make it optional to not make it fail as soon as one command fails
+echo 'set -e' >> ${scr_swarm}
+chmod a+x ${scr_swarm}
 
 # --------------------------------------------------------------------------
 
@@ -111,4 +118,4 @@ echo "++ And start running: ${scr_swarm}"
 #exit 0
 
 ##### add in later ####
-tcsh ${scr_swarm}
+${scr_swarm}
