@@ -226,6 +226,7 @@ with a simple form of afni_proc.py.
 
 ver  = ${version}
 auth = PA Taylor (SSCC, NIMH, NIH)
+       Y Halchenko (CON, Dartmouth College)
 -------------------------------------------------------------------------
 
 Options ~1~
