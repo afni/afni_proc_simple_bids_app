@@ -183,7 +183,11 @@ set cmd           = 20_ap_simple
 cd ${dir_input}
 set dir_input = ${PWD}
 cd -
-\mkdir -p ${dir_output}
+
+# Could be pre-created, bound mounted and not "creatable" within docker
+if ( ! -e "${dir_output}" ) then
+	\mkdir -p ${dir_output}
+endif
 cd ${dir_output}
 set dir_output = ${PWD}
 cd -
