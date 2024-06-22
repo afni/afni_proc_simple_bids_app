@@ -25,6 +25,7 @@ set func_glob  = ""            # opt label, to get subset of data
 set template   = "MNI152_2009_template_SSW.nii.gz"  # def template for proc
 
 set parallel_opts = ""         # opt options to pass to parallel invocation
+set omp_nthreads  = ""         # set nthreads per process
 
 set OK_SUBJ_FAIL = 0           # by default, stop at first failed subj proc
 
@@ -84,6 +85,12 @@ while ( $ac <= $#argv )
         if ( $ac >= $#argv ) goto FAIL_MISSING_ARG
         @ ac += 1
         set parallel_opts = "$argv[$ac]"
+
+    else if ( "$argv[$ac]" == "--omp-nthreads" ) then
+        if ( $ac >= $#argv ) goto FAIL_MISSING_ARG
+        @ ac += 1
+        set omp_nthreads = "$argv[$ac]"
+        setenv OMP_NUM_THREADS ${omp_nthreads}
 
     else if ( "$argv[$ac]" == "--ok_subj_fail" ) then
         set OK_SUBJ_FAIL = 1
@@ -363,6 +370,8 @@ Options that can be added:
 --parallel_opts OPTS
                   : options to pass to GNU parallel, e.g. '-j5' to run up to
                     5 jobs in parallel
+
+--omp-nthreads ON : set number of threads per job to use
 
 --echo            : run very verbosely (with 'set echo' on)
 
