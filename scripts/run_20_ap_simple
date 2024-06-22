@@ -90,6 +90,9 @@ while ( $ac <= $#argv )
     #else
     #    echo "\n\n** ERROR: unexpected option #$ac = '$argv[$ac]'\n\n"
     #    goto BAD_EXIT
+    else
+        # end of opts
+        break
         
     endif
     @ ac += 1
@@ -97,10 +100,22 @@ end
 
 # --------- now get required args
 
-set dir_input  = "$1"
-set dir_output = "$2"
-set level_var  = "$3"
+echo "++ Now to required args, num=$ac etc."
 
+@ nreq = $ac + 2
+if ( `echo "$#argv < $nreq" | bc` ) then
+    echo "** ERROR: need 3 positional args at end; this has too few."
+    goto BAD_EXIT
+else if ( `echo "$#argv > $nreq" | bc` ) then
+    echo "** ERROR: need exactly 3 positional args at end; this has too many."
+    goto BAD_EXIT
+endif
+
+set dir_input  = "$argv[$ac]"; @ ac ++
+set dir_output = "$argv[$ac]"; @ ac ++
+set level_var  = "$argv[$ac]"
+
+# should be unnecessary check here...
 if ( "${level_var}" == "" ) then
     echo "** ERROR: need 3 positional args at end; see help file."
     goto BAD_EXIT
@@ -115,10 +130,10 @@ endif
 
 # check if input dir provided, and its existence
 if ( "${dir_input}" == "" ) then
-    echo "** ERROR: need to provide input dir name with '--dir_input ..'"
+    echo "** ERROR: need to provide input dir name with positional arg"
     goto BAD_EXIT
 else if ( ! -d "${dir_input}" ) then
-    echo "** ERROR: invalid input dir via '-dir_input ..'"
+    echo "** ERROR: invalid input dir via correct positional arg"
     goto BAD_EXIT
 endif
 
@@ -217,7 +232,7 @@ foreach subj ( ${all_subj} )
     set cmd = "tcsh -xf ${scr_cmd} -dir_input ${dir_input} -dir_output ${dir_output} -subj ${subj} "
 
     if ( "${func_glob}" != "" ) then
-        set cmd = "${cmd} -func_glob ${func_glob} "
+        set cmd = "${cmd} -func_glob '${func_glob}' "
     endif
 
     if ( "${template}" != "" ) then
