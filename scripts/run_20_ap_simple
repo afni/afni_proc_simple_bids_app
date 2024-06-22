@@ -199,7 +199,7 @@ set dir_swarm     = ${dir_output}/code
 # running
 set scr_cmd       = ${dir_scr}/do_${cmd}
 set scr_swarm     = ${dir_swarm}/swarm_${cmd}
-set jobs_swarm    = ${src_swarm}.jobs
+set jobs_swarm    = ${scr_swarm}.jobs
 
 # --------------------------------------------------------------------------
 # swarm script stuff
@@ -217,12 +217,12 @@ if ( ! ${OK_SUBJ_FAIL} ) then
 endif
 
 cat << EOF >> ${scr_swarm}
-#\!/bin/sh
+#!/bin/sh
 
 base=\${0%.*}
 
 cat "\${base}.jobs" \
-| parallel -C ' ' $parallel_opts --jl "${base}.log" \
+| parallel -C ' ' $parallel_opts --jl "\${base}.log" \
      tcsh -xf ${scr_cmd} -dir_input ${dir_input} -dir_output ${dir_output}
 EOF
 
