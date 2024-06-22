@@ -137,10 +137,10 @@ endif
 
 # check if input dir provided, and its existence
 if ( "${dir_input}" == "" ) then
-    echo "** ERROR: need to provide input dir name with positional arg"
+    echo "** ERROR: need to provide a non-empty input dir name with positional arg"
     goto BAD_EXIT
 else if ( ! -d "${dir_input}" ) then
-    echo "** ERROR: invalid input dir via correct positional arg"
+    echo "** ERROR: directory '$dir_input' does not exist. Current directory: `pwd`"
     goto BAD_EXIT
 endif
 
