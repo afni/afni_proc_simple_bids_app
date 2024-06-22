@@ -9,6 +9,11 @@ RUN wget -nv -O /tmp/afni_atlases.tgz https://afni.nimh.nih.gov/pub/dist/atlases
     rm /tmp/afni_atlases.tgz
 ENV AFNI_ATLAS_PATH=$AFNI_ROOT/../atlases
 
+# Install GNU parallel so we could (more) easily parallelize execution
+USER root
+RUN apt-get update && apt-get install -y -q parallel && rm -rf /var/lib/apt/lists/*
+USER afni_user
+
 COPY scripts/* /usr/local/bin/
 ENTRYPOINT ["/usr/local/bin/run_20_ap_simple"]
 
