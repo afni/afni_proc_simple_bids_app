@@ -20,7 +20,7 @@ set dir_ap         = ""                # OUTPUT group level dir
 set subj           = ""                # req subject ID 
 
 set ses            = ""                # opt session level ID 
-set task_label     = ""                # opt label, to get subset of data
+set func_glob      = ""                # opt label, to get subset of data
 
 set template = "MNI152_2009_template_SSW.nii.gz"  # def template for proc
 
@@ -66,10 +66,10 @@ while ( $ac <= $#argv )
         @ ac += 1
         set ses = "$argv[$ac]"
 
-    else if ( "$argv[$ac]" == "-task_label" ) then
+    else if ( "$argv[$ac]" == "-func_glob" ) then
         if ( $ac >= $#argv ) goto FAIL_MISSING_ARG
         @ ac += 1
-        set task_label = "$argv[$ac]"
+        set func_glob = "$argv[$ac]"
 
     else if ( "$argv[$ac]" == "-template" ) then
         if ( $ac >= $#argv ) goto FAIL_MISSING_ARG
@@ -151,7 +151,7 @@ set lab_out  = AP
 setenv AFNI_COMPRESSOR GZIP
 
 # dataset inputs
-set dsets_epi     = ( ${sdir_func}/${psubj}*${task_label}*bold.nii* )
+set dsets_epi     = ( ${sdir_func}/${psubj}*${func_glob}*bold.nii* )
 set dset_anat_00  = ( ${sdir_anat}/${psubj}*_T1w.nii.gz )
 
 # want >0 EPI
@@ -277,8 +277,9 @@ Options ~1~
 
 -ses       SES   : session ID
 
--task_label TL   : task label string that might be in EPI file names, to help
-                   select a specific set (or subset) of them in func dir
+-func_glob FG    : a string to use for selecting out EPI file names
+                   (e.g., a task label), to help select a specific
+                   set (or subset) of them in func dir 
                    (def: none, so get all dsets in func dir)
 
 -template  TEMPL : template dataset either in local dir, with path, or 
