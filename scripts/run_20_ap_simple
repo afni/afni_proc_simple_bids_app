@@ -6,7 +6,7 @@
 # This script runs a corresponding do_*.tcsh script for a given
 # subj+ses pair. This script loops over subj+ses pairs from basic dir
 
-# To execute:  
+# To execute:
 #     tcsh RUN_SCRIPT_NAME
 
 set version = 0.2  ; set rev_dat = "June 22, 2024"
@@ -24,13 +24,15 @@ set func_glob  = ""            # opt label, to get subset of data
 
 set template   = "MNI152_2009_template_SSW.nii.gz"  # def template for proc
 
+set parallel_opts = ""         # opt options to pass to parallel invocation
+
 set OK_SUBJ_FAIL = 0           # by default, stop at first failed subj proc
 
 set bindir = `dirname "$0"`
 
 # ------------------- process options, in odd way here ---------------------
 
-# special pre-checks 
+# special pre-checks
 if ( $#argv == 0 ) goto SHOW_HELP
 
 # go through and get every option that exists, and then find 3
@@ -78,6 +80,11 @@ while ( $ac <= $#argv )
         @ ac += 1
         set template = "$argv[$ac]"
 
+    else if ( "$argv[$ac]" == "--parallel_opts" ) then
+        if ( $ac >= $#argv ) goto FAIL_MISSING_ARG
+        @ ac += 1
+        set parallel_opts = "$argv[$ac]"
+
     else if ( "$argv[$ac]" == "--ok_subj_fail" ) then
         set OK_SUBJ_FAIL = 1
 
@@ -93,7 +100,7 @@ while ( $ac <= $#argv )
     else
         # end of opts
         break
-        
+
     endif
     @ ac += 1
 end
@@ -123,7 +130,7 @@ else if ( "`echo ${level_var} | cut -b 1`" == "-" ) then
     echo "** ERROR: no options allowed after positional args"
     goto BAD_EXIT
 endif
-      
+
 # =======================================================================
 # ======================== ** Verify + setup ** =========================
 # =======================================================================
@@ -143,7 +150,7 @@ if ( "${dir_output}" == "" ) then
     goto BAD_EXIT
 endif
 
-# get/check all subj dirs 
+# get/check all subj dirs
 if ( ! ${#all_subj} ) then
     # user didn't provide list, get our own
     cd ${dir_input}
@@ -176,7 +183,11 @@ set cmd           = 20_ap_simple
 cd ${dir_input}
 set dir_input = ${PWD}
 cd -
-\mkdir -p ${dir_output}
+
+# Could be pre-created, bound mounted and not "creatable" within docker
+if ( ! -e "${dir_output}" ) then
+	\mkdir -p ${dir_output}
+endif
 cd ${dir_output}
 set dir_output = ${PWD}
 cd -
@@ -186,8 +197,9 @@ set dir_scr       = $bindir
 set dir_swarm     = ${dir_output}/code
 
 # running
-set scr_swarm     = ${dir_swarm}/swarm_${cmd}
 set scr_cmd       = ${dir_scr}/do_${cmd}
+set scr_swarm     = ${dir_swarm}/swarm_${cmd}
+set jobs_swarm    = ${scr_swarm}.jobs
 
 # --------------------------------------------------------------------------
 # swarm script stuff
@@ -195,16 +207,25 @@ set scr_cmd       = ${dir_scr}/do_${cmd}
 # make output directory and swarm directory, if not already existing
 \mkdir -p ${dir_swarm}
 
-# clear away older swarm script 
-if ( -e ${scr_swarm} ) then
-    \rm ${scr_swarm}
-endif
+# clear away older swarm script and jobs specifications
+\rm -f "${scr_swarm}" "${jobs_swarm}"
 
-echo '#\!/bin/sh' > ${scr_swarm}
 # do we exit when one subj proj fails?
 if ( ! ${OK_SUBJ_FAIL} ) then
-    echo 'set -e' >> ${scr_swarm}
+    # quit parallel as soon as one job fails, kill the others
+    set parallel_opts = "$parallel_opts --halt now,fail=1"
 endif
+
+cat << EOF >> ${scr_swarm}
+#!/bin/sh
+
+base=\${0%.*}
+
+cat "\${base}.jobs" \
+| parallel -C ' ' $parallel_opts --jl "\${base}.log" \
+     tcsh -xf ${scr_cmd} -dir_input ${dir_input} -dir_output ${dir_output}
+EOF
+
 chmod a+x ${scr_swarm}
 
 # --------------------------------------------------------------------------
@@ -228,31 +249,31 @@ foreach subj ( ${all_subj} )
     set nses    = ${#all_ses}
     cd -
 
-    # start building command to 'do*' script
-    set cmd = "tcsh -xf ${scr_cmd} -dir_input ${dir_input} -dir_output ${dir_output} -subj ${subj} "
+    # start building options for the 'do*' script job
+    set job = "-subj ${subj}"
 
     if ( "${func_glob}" != "" ) then
         set cmd = "${cmd} -func_glob '${func_glob}' "
     endif
 
     if ( "${template}" != "" ) then
-        set cmd = "${cmd} -template ${template} "
+        set job = "${job} -template ${template}"
     endif
 
     # loop over ses ID, if present
     if ( ${nses} ) then
         # loop over all ses
         foreach ses ( ${all_ses} )
-            echo "++ Prepare cmd for: ${subj} - ${ses}"
+            echo "++ Prepare job for: ${subj} - ${ses}"
 
-            # add cmd to swarm script (verbosely, and don't use '-e')
-            echo "${cmd} -ses ${ses}"    >> ${scr_swarm}
+            # add job to swarm script (verbosely, and don't use '-e')
+            echo "${job} -ses ${ses}"  >> ${jobs_swarm}
         end
     else
-        echo "++ Prepare cmd for: ${subj}"
+        echo "++ Prepare job for: ${subj}"
 
-        # add cmd to swarm script (verbosely, and don't use '-e')
-        echo "${cmd} "    >> ${scr_swarm}
+        # add job to swarm script (verbosely, and don't use '-e')
+        echo "${job}"    >> ${jobs_swarm}
     endif
 end
 
@@ -284,19 +305,19 @@ cat << EOF
 Overview ~1~
 
 This is a script to process a data collection that is in BIDS format
-with a *simple form* of afni_proc.py. 
+with a *simple form* of afni_proc.py.
 
 Note that this simple form of afni_proc.py makes the following
 processing choices:
 + process data like resting state FMRI (no stimulus classes)
 + pick a blur/smoothing value
 + perform affine alignment from anatomical volume to template, for speed
-  of processing (NB: full analysis would generally use nonlinear 
+  of processing (NB: full analysis would generally use nonlinear
   alignment)
 
 ver  = ${version}
 auth = PA Taylor (SSCC, NIMH, NIH)
-       Y Halchenko (CON, Dartmouth College)
+       Y Halchenko (CON, PBS, Dartmouth College)
 -------------------------------------------------------------------------
 
 Arguments and Options ~1~
@@ -318,7 +339,7 @@ Options that can be added:
 --participant_label  SUBJ1 [SUBJ2 SUBJ3 ...]
                   : user can input one or more subject IDs to process.
                     NB: using this, you might need to include a separator
-                    option '--' at the end of this list, if this option 
+                    option '--' at the end of this list, if this option
                     is used just before the positional arguments
                     (def: process all 'sub-*' dirs in dir_input)
 
@@ -329,15 +350,19 @@ Options that can be added:
 
 --func_glob FG    : a string to use for selecting out EPI file names
                     (e.g., a task label), to help select a specific
-                    set (or subset) of them in func dir 
+                    set (or subset) of them in func dir
                     (def: none, so get all dsets in func dir)
 
---template  TEMPL : template dataset either in local dir, with path, or 
+--template  TEMPL : template dataset either in local dir, with path, or
                     in a place @FindAfniDsetPath can find it
                     (def: ${template})
 
---ok_subj_fail    : keep processing subjects, even if one fails (def: stop 
+--ok_subj_fail    : keep processing subjects, even if one fails (def: stop
                     processing at first subject failure)
+
+--parallel_opts OPTS
+                  : options to pass to GNU parallel, e.g. '-j5' to run up to
+                    5 jobs in parallel
 
 --echo            : run very verbosely (with 'set echo' on)
 
