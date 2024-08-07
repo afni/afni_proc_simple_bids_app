@@ -184,7 +184,7 @@ endif
 # =======================================================================
 
 # specify script to execute
-set cmd           = 20_ap_simple
+set cmd           = ap_simple_bidsapp
 
 # basic and output need to be abs path
 cd ${dir_input}
