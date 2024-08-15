@@ -227,6 +227,8 @@ if ( ! ${OK_SUBJ_FAIL} ) then
     set parallel_opts = "$parallel_opts --halt now,fail=1"
 endif
 
+# NB: parallel appears to be quite sensitive to the number of spaces
+# separating opts
 if ( ${DO_PARALLEL} ) then
     cat << EOF >> ${scr_swarm}
 #!/bin/sh
@@ -279,7 +281,7 @@ foreach subj ( ${all_subj} )
     endif
 
     if ( "${func_glob}" != "" ) then
-        set job = "${job} -func_glob '${func_glob}' "
+        set job = "${job} -func_glob ${func_glob}"
     endif
 
     if ( "${template}" != "" ) then
