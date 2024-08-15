@@ -1,0 +1,510 @@
+#!/bin/tcsh
+
+# AP SIMPLE: run afni_proc.py for full FMRI processing (quick/simple proc)
+#            of multiecho data
+
+# This script runs a corresponding do_*.tcsh script for a given
+# subj+ses pair. This script loops over subj+ses pairs from basic dir
+
+# To execute:
+#     tcsh RUN_SCRIPT_NAME
+
+set version = 0.1  ; set rev_dat = "Aug 15, 2024"
+
+# --------------------------------------------------------------------------
+
+# these 3 vars are populated by required positional args
+set dir_input  = ""            # dir name: contains all raw data sub dirs
+set dir_output = ""            # dir name: to be output of all deriv dirs
+set level_var  = ""            # string for level of analysis
+
+set all_subj   = ( )           # list of all subj IDs; def: proc all subj
+
+set func_glob  = ""            # opt label, to get subset of data
+
+set template   = "MNI152_2009_template_SSW.nii.gz"  # def template for proc
+
+set DO_PARALLEL   = 0          # fancy parallel, off by default
+set parallel_opts = ""         # opt options to pass to parallel invocation
+set omp_nthreads  = ""         # set nthreads per process
+
+set OK_SUBJ_FAIL = 0           # by default, stop at first failed subj proc
+
+set echo_times   = ()          # by default, no echo times given
+
+set bindir = `dirname "$0"`
+
+# ------------------- process options, in odd way here ---------------------
+
+# special pre-checks
+if ( $#argv == 0 ) goto SHOW_HELP
+
+# go through and get every option that exists, and then find 3
+# required ones after
+
+set ac = 1
+while ( $ac <= $#argv )
+    # terminal options
+    if ( ("$argv[$ac]" == "--h" ) || ("$argv[$ac]" == "--help" )) then
+        goto SHOW_HELP
+    endif
+    if ( "$argv[$ac]" == "--version" ) then
+        goto SHOW_VERSION
+    endif
+
+    if ( "$argv[$ac]" == '--echo' ) then
+        set echo
+
+    # --------- required
+
+    # **none of the required ones have option flags, they are
+    # **freefloating without '--OPT'
+
+    # --------- opt
+
+    else if ( "$argv[$ac]" == "--participant_label" ) then
+        if ( $ac >= $#argv ) goto FAIL_MISSING_ARG
+        @ ac += 1
+        # keep adding to list until another option or end of inputs
+        while ( $ac <= $#argv )
+            if ( "`echo $argv[$ac] | cut -b 1`" == "-" ) break
+            set all_subj = ( ${all_subj} $argv[$ac] )
+            @ ac ++
+        end
+        # now at arg not belonging to this opt
+        @ ac -= 1
+
+    else if ( "$argv[$ac]" == "--func_glob" ) then
+        if ( $ac >= $#argv ) goto FAIL_MISSING_ARG
+        @ ac += 1
+        set func_glob = "$argv[$ac]"
+
+    else if ( "$argv[$ac]" == "--template" ) then
+        if ( $ac >= $#argv ) goto FAIL_MISSING_ARG
+        @ ac += 1
+        set template = "$argv[$ac]"
+
+    else if ( "$argv[$ac]" == "--parallel_opts" ) then
+        if ( $ac >= $#argv ) goto FAIL_MISSING_ARG
+        @ ac += 1
+        set parallel_opts = "$argv[$ac]"
+
+    else if ( "$argv[$ac]" == "--parallel_on" ) then
+        set DO_PARALLEL = 1
+
+    else if ( "$argv[$ac]" == "--omp-nthreads" ) then
+        if ( $ac >= $#argv ) goto FAIL_MISSING_ARG
+        @ ac += 1
+        set omp_nthreads = "$argv[$ac]"
+        setenv OMP_NUM_THREADS ${omp_nthreads}
+
+    else if ( "$argv[$ac]" == "--ok_subj_fail" ) then
+        set OK_SUBJ_FAIL = 1
+
+    else if ( "$argv[$ac]" == "--echo_times" ) then
+        if ( $ac >= $#argv ) goto FAIL_MISSING_ARG
+        @ ac += 1
+        # keep adding to list until another option or end of inputs
+        while ( $ac <= $#argv )
+            if ( "`echo $argv[$ac] | cut -b 1`" == "-" ) break
+            set echo_times = ( ${echo_times} $argv[$ac] )
+            @ ac ++
+        end
+        # now at arg not belonging to this opt
+        @ ac -= 1
+
+    # this means we are at the end of options, and should look for
+    # required positional args
+    else if ( "$argv[$ac]" == "--" ) then
+        break
+
+    # NB: no longer use this, because there are positional args
+    #else
+    #    echo "\n\n** ERROR: unexpected option #$ac = '$argv[$ac]'\n\n"
+    #    goto BAD_EXIT
+    else
+        # end of opts
+        break
+
+    endif
+    @ ac += 1
+end
+
+# --------- now get required args
+
+echo "++ Now to required args, num=$ac etc."
+
+@ nreq = $ac + 2
+if ( `echo "$#argv < $nreq" | bc` ) then
+    echo "** ERROR: need 3 positional args at end; this has too few."
+    goto BAD_EXIT
+else if ( `echo "$#argv > $nreq" | bc` ) then
+    echo "** ERROR: need exactly 3 positional args at end; this has too many."
+    goto BAD_EXIT
+endif
+
+set dir_input  = "$argv[$ac]"; @ ac ++
+set dir_output = "$argv[$ac]"; @ ac ++
+set level_var  = "$argv[$ac]"
+
+# should be unnecessary check here...
+if ( "${level_var}" == "" ) then
+    echo "** ERROR: need 3 positional args at end; see help file."
+    goto BAD_EXIT
+else if ( "`echo ${level_var} | cut -b 1`" == "-" ) then
+    echo "** ERROR: no options allowed after positional args"
+    goto BAD_EXIT
+endif
+
+# =======================================================================
+# ======================== ** Verify + setup ** =========================
+# =======================================================================
+
+# check if input dir provided, and its existence
+if ( "${dir_input}" == "" ) then
+    echo "** ERROR: need to provide a non-empty input dir name with positional arg"
+    goto BAD_EXIT
+else if ( ! -d "${dir_input}" ) then
+    echo "** ERROR: directory '$dir_input' does not exist. Current directory: `pwd`"
+    goto BAD_EXIT
+endif
+
+# check if output dir provided, and if it will be/can be overwritten
+if ( "${dir_output}" == "" ) then
+    echo "** ERROR: need to provide output dir name with '--dir_output ..'"
+    goto BAD_EXIT
+endif
+
+# get/check all subj dirs
+if ( ! ${#all_subj} ) then
+    # user didn't provide list, get our own
+    cd ${dir_input}
+    set all_subj = ( sub-* )
+    cd -
+
+    # must have at least one
+    if ( ! ${#all_subj} ) then
+        echo "** ERROR: cannot find any subj in input dir: ${dir_input}"
+        goto BAD_EXIT
+    endif
+else
+    # verify all user-entered subj IDs
+    cd ${dir_input}
+    foreach subj ( ${all_subj} )
+        set ok = `python -c "import glob; print(len(glob.glob('${subj}')))"`
+        if ( ! ${ok} ) then
+            echo "** ERROR: cannot find user-entered subj dir: ${subj}"
+            goto BAD_EXIT
+        endif
+    end
+endif
+
+# check for top-level echo times, if not provided 
+if ( ${#echo_times} == 0 ) then
+    echo "++ Check for JSON files at top level, for echo times"
+    cd ${dir_input}
+    set ok = `python -c "import glob; print(len(glob.glob('*${func_glob}*echo*bold.json')))"`
+    if ( ${ok} ) then
+        # get all JSONs, and then get echo times
+        set all_json   = ( *${func_glob}*echo*bold.json )
+        set echo_times = `abids_json_info.py   \
+                            -json ${all_json}  \
+                            -field "EchoTime"`
+        set num_echo = ${#echo_times}
+
+        # one way to verify that the EchoTime key existed with usable values
+        set is_bad = 0
+        foreach et ( ${echo_times} )
+            if ( "${et}" == "None" ) then
+                set is_bad = 1
+            endif
+        end
+        if ( ${is_bad} ) then
+            echo "** ERROR: read echo times from these ${num_echo} files:"
+            echo "   ${all_json}"
+            echo "   ... and this was list of echo times: ${echo_times}"
+            goto BAD_EXIT
+        endif
+        echo "++ Found ${num_echo} echo times: ${echo_times}"
+    else
+        echo "++ No JSON files at top level, so will check per-file"
+    endif
+    cd -
+endif
+
+# if using parallel proc, check that the program exists on the OS
+if ( ${DO_PARALLEL} ) then
+    which parallel
+    if ( $status ) then
+        echo "** ERROR: program 'parallel' does not appear to be installed"
+        echo "   even though the user used '-parallel_on'. Please install it"
+        goto BAD_EXIT
+    endif
+endif
+
+# =======================================================================
+
+# specify script to execute
+set cmd           = ap_simple_mecho_bidsapp
+
+# basic and output need to be abs path
+cd ${dir_input}
+set dir_input = ${PWD}
+cd -
+
+# Could be pre-created, bound mounted and not "creatable" within docker
+if ( ! -e "${dir_output}" ) then
+	\mkdir -p ${dir_output}
+endif
+cd ${dir_output}
+set dir_output = ${PWD}
+cd -
+
+# upper directories
+set dir_scr       = $bindir
+set dir_swarm     = ${dir_output}/code
+
+# running
+set scr_cmd       = ${dir_scr}/do_${cmd}
+set scr_swarm     = ${dir_swarm}/swarm_${cmd}
+set jobs_swarm    = ${scr_swarm}.jobs
+
+# --------------------------------------------------------------------------
+# swarm script stuff
+
+# make output directory and swarm directory, if not already existing
+\mkdir -p ${dir_swarm}
+
+# clear away older swarm script and jobs specifications
+\rm -f "${scr_swarm}" "${jobs_swarm}"
+
+# do we exit when one subj proj fails?
+if ( ! ${OK_SUBJ_FAIL} ) then
+    # quit parallel as soon as one job fails, kill the others
+    set parallel_opts = "$parallel_opts --halt now,fail=1"
+endif
+
+# NB: parallel appears to be quite sensitive to the number of spaces
+# separating opts
+if ( ${DO_PARALLEL} ) then
+    cat << EOF >> ${scr_swarm}
+#!/bin/sh
+
+base=\${0%.*}
+
+cat "\${base}.jobs" \
+| parallel -C ' ' $parallel_opts --jl "\${base}.log" \
+     tcsh -xf ${scr_cmd} -dir_input ${dir_input} -dir_output ${dir_output}
+EOF
+
+else
+    # if parallel is off, then start with swarm  empty file
+    printf "" > ${scr_swarm}
+
+    # and each line gets this command to start
+    set job0 = "tcsh -xf ${scr_cmd} -dir_input ${dir_input} "
+    set job0 = " ${job0} -dir_output ${dir_output}"
+endif
+
+
+chmod a+x ${scr_swarm}
+
+# --------------------------------------------------------------------------
+
+cat <<EOF
+
+++ Proc command:  ${cmd}
+++ Have ${#all_subj} subj
+
+EOF
+
+# -------------------------------------------------------------------------
+# build swarm command
+
+# loop over all subj
+foreach subj ( ${all_subj} )
+
+    # use python to check if we have session level
+    cd ${dir_input}/${subj}
+    set all_ses = `python -c "import glob; print(' '.join(glob.glob('ses-*')))"`
+    set nses    = ${#all_ses}
+    cd -
+
+    # start building options for the 'do*' script job
+    if ( ${DO_PARALLEL} ) then
+        set job = "-subj ${subj}"
+    else
+        set job = "${job0} -subj ${subj}"
+    endif
+
+    if ( "${func_glob}" != "" ) then
+        set job = "${job} -func_glob ${func_glob}"
+    endif
+
+    if ( ${#echo_times} ) then
+        set job = "${job} -echo_times ${echo_times}"
+    endif
+
+    if ( "${template}" != "" ) then
+        set job = "${job} -template ${template}"
+    endif
+
+    # loop over ses ID, if present
+    if ( ${nses} ) then
+        # loop over all ses
+        foreach ses ( ${all_ses} )
+            echo "++ Prepare job for: ${subj} - ${ses}"
+
+            # add job to swarm script (verbosely, and don't use '-e')
+            if ( ${DO_PARALLEL} ) then
+                echo "${job} -ses ${ses}"  >> ${jobs_swarm}
+            else
+                echo "${job} -ses ${ses}"  >> ${scr_swarm}
+            endif
+        end
+    else
+        echo "++ Prepare job for: ${subj}"
+
+        # add job to swarm script (verbosely, and don't use '-e')
+        if ( ${DO_PARALLEL} ) then
+            echo "${job}"    >> ${jobs_swarm}
+        else
+            echo "${job}"    >> ${scr_swarm}
+        endif
+    endif
+end
+
+# -------------------------------------------------------------------------
+# run swarm command
+cd ${dir_scr}
+
+echo "++ And start running: ${scr_swarm}"
+
+##exit 0
+
+# execute the script, which contains all subj to proc
+${scr_swarm}
+
+# nous sommes finis
+if ( $status ) then
+    goto BAD_EXIT
+else
+    goto GOOD_EXIT
+endif
+
+# ========================================================================
+# ========================================================================
+
+SHOW_HELP:
+cat << EOF
+-------------------------------------------------------------------------
+
+Overview ~1~
+
+This is a script to process a data collection that is in BIDS format
+with a *simple form* of afni_proc.py.
+
+Note that this simple form of afni_proc.py makes the following
+processing choices:
++ process data like resting state FMRI (no stimulus classes)
++ pick a blur/smoothing value
++ perform affine alignment from anatomical volume to template, for speed
+  of processing (NB: full analysis would generally use nonlinear
+  alignment)
+
+ver  = ${version}
+auth = PA Taylor (SSCC, NIMH, NIH)
+       Y Halchenko (CON, PBS, Dartmouth College)
+-------------------------------------------------------------------------
+
+Arguments and Options ~1~
+
+There are 3 required positional arguments, which should be at the end
+of the command:
+
+DIR_INPUT         : input/top dir of BIDS-format data collection
+
+DIR_OUTPUT        : output dirname for afni_proc.py BIDS-derivatives
+
+LABEL             : exactly one of the following strings, specifying the
+                    level of analysis:
+                      participant
+                      group
+
+Options that can be added:
+
+--echo_times  ET1 [ET2 ET3 ...]
+                  : user can input echo times explicitly.
+                    If not used, then the DIR_INPUT directory will be
+                    checked for JSON files with echo times that apply to
+                    all subjects.
+                    If those don't exist, then the individual subject 
+                    EPI sidecar files will be checked.
+
+--participant_label  SUBJ1 [SUBJ2 SUBJ3 ...]
+                  : user can input one or more subject IDs to process.
+                    NB: using this, you might need to include a separator
+                    option '--' at the end of this list, if this option
+                    is used just before the positional arguments
+                    (def: process all 'sub-*' dirs in dir_input)
+
+--                : separator option, to signify end of all options; this
+                    exists because there are required options by position,
+                    along with at least one option that can have arbitrary
+                    number of args
+
+--func_glob FG    : a string to use for selecting out EPI file names
+                    (e.g., a task label), to help select a specific
+                    set (or subset) of them in func dir
+                    (def: none, so get all dsets in func dir)
+
+--template  TEMPL : template dataset either in local dir, with path, or
+                    in a place @FindAfniDsetPath can find it
+                    (def: ${template})
+
+--ok_subj_fail    : keep processing subjects, even if one fails (def: stop
+                    processing at first subject failure)
+
+--parallel_on     : enable fancy parallel execution (def: run in serial).
+                    This requires having the 'parallel' program installed.
+
+--parallel_opts OPTS
+                  : if parallel processing is enabled, user can provide
+                    options to pass to GNU parallel, e.g. '-j5' to run up to
+                    5 jobs in parallel
+
+--omp-nthreads ON : set number of threads per job to use
+
+--echo            : run very verbosely (with 'set echo' on)
+
+--version         : display program version
+
+--help            : show help
+
+-------------------------------------------------------------------------
+
+Examples ~1~
+
+1) Basic usage:
+
+   ****
+
+EOF
+
+# ----------------------------------------------------------------------
+
+    goto GOOD_EXIT
+
+SHOW_VERSION:
+   echo "version  $version  (${rev_dat})"
+   goto GOOD_EXIT
+
+FAIL_MISSING_ARG:
+    echo "** ERROR: Missing an argument after option flag: '$argv[$ac]'"
+    goto BAD_EXIT
+
+BAD_EXIT:
+    exit 1
+
+GOOD_EXIT:
+    exit 0

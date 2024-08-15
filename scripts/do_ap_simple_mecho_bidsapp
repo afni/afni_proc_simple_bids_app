@@ -1,0 +1,369 @@
+#!/bin/tcsh
+
+# AP simple: run afni_proc.py for full FMRI processing (for initial QC)
+#            of multiecho data
+
+# Process a single subj+ses pair.
+
+# Run for a group via partner run*.tcsh.
+
+
+# initial exit code; we don't exit at fail, to copy partial results back
+set ecode = 0
+
+# ---------------------------------------------------------------------------
+# top level definitions (constant across demo)
+# ---------------------------------------------------------------------------
+
+# labels
+set dir_input      = ""                # INPUT group level dir
+set dir_ap         = ""                # OUTPUT group level dir
+set subj           = ""                # req subject ID 
+
+set ses            = ""                # opt session level ID 
+set func_glob      = ""                # opt label, to get subset of data
+
+set template = "MNI152_2009_template_SSW.nii.gz"  # def template for proc
+
+set echo_times     = ()                # opt list of echo times
+
+# ------------------- process options, a la rr ----------------------
+
+if ( $#argv == 0 ) goto SHOW_HELP
+
+set ac = 1
+while ( $ac <= $#argv )
+    # terminal options
+    if ( ("$argv[$ac]" == "-h" ) || ("$argv[$ac]" == "-help" )) then
+        goto SHOW_HELP
+    endif
+    if ( "$argv[$ac]" == "-ver" ) then
+        goto SHOW_VERSION
+    endif
+
+    if ( "$argv[$ac]" == '-echo' ) then
+        set echo
+
+    # --------- required
+
+    else if ( "$argv[$ac]" == "-dir_input" ) then
+        if ( $ac >= $#argv ) goto FAIL_MISSING_ARG
+        @ ac += 1
+        set dir_input = "$argv[$ac]"
+
+    else if ( "$argv[$ac]" == "-dir_output" ) then
+        if ( $ac >= $#argv ) goto FAIL_MISSING_ARG
+        @ ac += 1
+        set dir_ap = "$argv[$ac]"
+
+    else if ( "$argv[$ac]" == "-subj" ) then
+        if ( $ac >= $#argv ) goto FAIL_MISSING_ARG
+        @ ac += 1
+        set subj = "$argv[$ac]"
+
+    # --------- opt
+
+    else if ( "$argv[$ac]" == "-ses" ) then
+        if ( $ac >= $#argv ) goto FAIL_MISSING_ARG
+        @ ac += 1
+        set ses = "$argv[$ac]"
+
+    else if ( "$argv[$ac]" == "-func_glob" ) then
+        if ( $ac >= $#argv ) goto FAIL_MISSING_ARG
+        @ ac += 1
+        set func_glob = "$argv[$ac]"
+
+    else if ( "$argv[$ac]" == "-template" ) then
+        if ( $ac >= $#argv ) goto FAIL_MISSING_ARG
+        @ ac += 1
+        set template = "$argv[$ac]"
+
+    else if ( "$argv[$ac]" == "-echo_times" ) then
+        if ( $ac >= $#argv ) goto FAIL_MISSING_ARG
+        @ ac += 1
+        # keep adding to list until another option or end of inputs
+        while ( $ac <= $#argv )
+            if ( "`echo $argv[$ac] | cut -b 1`" == "-" ) break
+            set echo_times = ( ${echo_times} $argv[$ac] )
+            @ ac ++
+        end
+        # now at arg not belonging to this opt
+        @ ac -= 1
+
+    else
+        echo "\n\n** ERROR: unexpected option #$ac = '$argv[$ac]'\n\n"
+        goto BAD_EXIT
+        
+    endif
+    @ ac += 1
+end
+
+# =======================================================================
+# ======================== ** Verify + setup ** =========================
+# =======================================================================
+
+# check if input dir provided, and its existence
+if ( "${dir_input}" == "" ) then
+    echo "** ERROR: need to provide input dir name with '-dir_input ..'"
+    goto BAD_EXIT
+else if ( ! -d "${dir_input}" ) then
+    echo "** ERROR: invalid input dir via '-dir_input ..'"
+    goto BAD_EXIT
+endif
+
+# check if output dir provided, and if it will be/can be overwritten
+if ( "${dir_ap}" == "" ) then
+    echo "** ERROR: need to provide output dir name with '-dir_output ..'"
+    goto BAD_EXIT
+endif
+
+# check if subj ID provided
+if ( "${subj}" == "" ) then
+    echo "** ERROR: need to provide subject ID name with '-subj ..'"
+    goto BAD_EXIT
+endif
+
+# create full file name for subj (which might optionally include ses)
+set fsubj = ${subj}                      # filename : subj[/ses]
+set psubj = ${subj}                      # prefix   : subj[_ses]
+if ( ${ses} != "" ) then
+    set fsubj = ${fsubj}/${ses}
+    set psubj = ${psubj}_${ses}
+endif
+
+# verify if subj[/ses] dir exists
+if ( ! -d ${dir_input}/${fsubj} ) then
+    echo "** ERROR: cannot find user-entered subj dir: ${fsubj}"
+    goto BAD_EXIT
+endif
+
+# verify we can find template
+set ok = `@FindAfniDsetPath "${template}"`
+if ( "${ok}" == "" ) then
+    echo "** ERROR: cannot find template: ${template}"
+    goto BAD_EXIT
+endif
+
+# =======================================================================
+
+set ap_label       = 20_ap_simple
+
+# subject directories
+set sdir_input     = ${dir_input}/${fsubj}
+set sdir_func      = ${sdir_input}/func
+set sdir_anat      = ${sdir_input}/anat
+set sdir_ap        = ${dir_ap}/${fsubj}
+
+# set output directory
+set sdir_out = ${sdir_ap}
+set lab_out  = AP
+
+# --------------------------------------------------------------------------
+# data and control variables
+# --------------------------------------------------------------------------
+
+setenv AFNI_COMPRESSOR GZIP
+
+# dataset inputs
+set dsets_epi     = ( ${sdir_func}/${psubj}*${func_glob}*echo*_bold.nii* )
+set dset_anat_00  = ( ${sdir_anat}/${psubj}*_T1w.nii* )
+
+# want >0 EPI
+set nepi = ${#dsets_epi}
+if ( ${nepi} == 0 ) then
+    echo "+* ERROR: need at least one EPI"
+    goto BAD_EXIT
+endif
+
+# ... and sort each run into its one input EPI opt, in ascending order
+set all_me_runs = ""
+set nall = 0
+# all possible 2-digit run indices
+set all_iidx = `count_afni -digits 2 1 ${nepi}`
+foreach iidx ( ${all_iidx} )
+    set all_dset = `echo $dsets_epi | tr -s ' ' '\n' | sort | \
+                        \grep run-${iidx}_echo`
+    set ndset = ${#all_dset}
+    # if we found datasets, add them as a new run batch
+    if ( ${ndset} ) then
+        @ nall+= ${ndset}
+        set all_me_runs = "${all_me_runs} -epi_me_run ${all_dset} "
+    else
+        # done searching
+        break
+    endif
+end
+
+# verify full and reconstructed EPI counts match
+if ( ${nall} != ${nepi} ) then
+    echo "** ERROR: found ${nepi} runs in full dset glob:"
+    echo "   ${dsets_epi}"
+    echo "   ... and this didn't match the count of ${nall} in run-by-run"
+    echo "   construction:"
+    echo "   ${all_me_runs}"
+    goto BAD_EXIT
+endif
+
+
+# only want 1 anatomical
+if ( `echo "${#dset_anat_00} > 1" | bc` ) then
+    echo "+* WARN: more than 1 anatomical, just choosing first:"
+    set dset_anat_00 = "${dset_anat_00[1]}"
+    echo "   ${dset_anat_00}"
+endif
+
+# control variables
+#set nt_rm         = 4       # number of time points to remove at start
+#set blur_size     = 6       # blur size to apply 
+#set final_dxyz    = 3       # final voxel size (isotropic dim)
+#set cen_motion    = 0.2     # censor threshold for motion (enorm) 
+#set cen_outliers  = 0.05    # censor threshold for outlier frac
+
+
+# check available N_threads and report what is being used
+set nthr_avail = `afni_system_check.py -disp_num_cpu`
+set nthr_using = `afni_check_omp`
+
+echo "++ INFO: Using ${nthr_using} of available ${nthr_avail} threads"
+
+
+# ---------------------------------------------------------------------------
+# run programs
+# ---------------------------------------------------------------------------
+
+# make output directory and go to it
+\mkdir -p ${sdir_out}
+cd ${sdir_out}
+
+# create command script
+set run_script = ap.cmd.${psubj}
+
+cat << EOF >! ${run_script}
+
+# AP, run simple
+#
+# single-echo FMRI, simple processing for initial QC
+# anatomical has skull on
+
+ap_run_simple_rest_me.tcsh                                             \
+    -run_ap                                                            \
+    -subjid      ${subj}                                               \
+    -anat        "${dset_anat_00}"                                     \
+    ${all_me_runs}                                                     \
+    -echo_times  ${echo_times}                                         \
+    -template    "${template}"
+
+EOF
+
+if ( ${status} ) then
+    set ecode = 1
+    goto COPY_AND_EXIT
+endif
+
+# execute AP command to make processing script
+tcsh -xef ${run_script} |& tee output.ap.cmd.${psubj}
+
+if ( ${status} ) then
+    set ecode = 2
+    goto COPY_AND_EXIT
+endif
+
+
+# execute the proc script, saving text info
+time tcsh -xef proc.${subj} |& tee output.proc.${psubj}
+
+if ( ${status} ) then
+    set ecode = 3
+    goto COPY_AND_EXIT
+endif
+
+echo "++ FINISHED ${lab_out}"
+
+# ---------------------------------------------------------------------------
+
+COPY_AND_EXIT:
+
+
+if ( ${ecode} ) then
+    echo "++ BAD FINISH: ${lab_out} (ecode = ${ecode})"
+else
+    echo "++ GOOD FINISH: ${lab_out}"
+endif
+
+exit ${ecode}
+
+# ========================================================================
+# ========================================================================
+
+SHOW_HELP:
+cat << EOF
+-------------------------------------------------------------------------
+
+Overview ~1~
+
+This is a per-subject script to process a data collection that is in
+BIDS format with a simple form of afni_proc.py. 
+
+Users will probably *not* run this directly, but instead call the
+associated 'run_${ap_label}' script that manages this over a data
+collection.
+
+ver  = ${version}
+auth = PA Taylor (SSCC, NIMH, NIH)
+       Y Halchenko (CON, Dartmouth College)
+-------------------------------------------------------------------------
+
+Options ~1~
+
+-dir_input   DI  :(req) input/top dir of BIDS-format data collection
+
+-dir_output  DO  :(req) output dirname for afni_proc.py BIDS-derivatives
+
+-subj      SUBJ  :(req) subject ID
+
+-ses       SES   : session ID
+
+-func_glob FG    : a string to use for selecting out EPI file names
+                   (e.g., a task label), to help select a specific
+                   set (or subset) of them in func dir 
+                   (def: none, so get all dsets in func dir)
+
+-template  TEMPL : template dataset either in local dir, with path, or 
+                   in a place @FindAfniDsetPath can find it
+                   (def: ${template})
+
+-echo            : run very verbosely (with 'set echo' on)
+
+-ver             : display program version
+
+-help            : show help
+
+-hview           : show help in text editor
+
+-------------------------------------------------------------------------
+
+Examples ~1~
+
+1) Basic usage:
+
+   ****
+
+EOF
+
+# ----------------------------------------------------------------------
+
+    goto GOOD_EXIT
+
+SHOW_VERSION:
+   echo "version  $version (${rev_dat})"
+   goto GOOD_EXIT
+
+FAIL_MISSING_ARG:
+    echo "** ERROR: Missing an argument after option flag: '$argv[$ac]'"
+    goto BAD_EXIT
+
+BAD_EXIT:
+    exit 1
+
+GOOD_EXIT:
+    exit 0
