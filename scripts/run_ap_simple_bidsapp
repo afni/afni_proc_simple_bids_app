@@ -260,7 +260,7 @@ foreach subj ( ${all_subj} )
     set job = "-subj ${subj}"
 
     if ( "${func_glob}" != "" ) then
-        set cmd = "${cmd} -func_glob '${func_glob}' "
+        set job = "${job} -func_glob '${func_glob}' "
     endif
 
     if ( "${template}" != "" ) then
