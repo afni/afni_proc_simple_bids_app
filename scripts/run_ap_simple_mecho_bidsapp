@@ -402,7 +402,7 @@ cat << EOF
 Overview ~1~
 
 This is a script to process a data collection that is in BIDS format
-with a *simple form* of afni_proc.py.
+with a *simple form* of afni_proc.py, for *multiecho FMRI* data.
 
 Note that this simple form of afni_proc.py makes the following
 processing choices:
@@ -411,6 +411,10 @@ processing choices:
 + perform affine alignment from anatomical volume to template, for speed
   of processing (NB: full analysis would generally use nonlinear
   alignment)
++ uses AFNI's optimal combination (OC) to combine echos
+
+***At the moment, does not read file sidecar for echo times, only
+   upper level JSON or explicit numbers---will add this shortly***
 
 ver  = ${version}
 auth = PA Taylor (SSCC, NIMH, NIH)
