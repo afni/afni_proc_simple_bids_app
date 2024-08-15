@@ -132,7 +132,7 @@ endif
 
 # =======================================================================
 
-set ap_label       = 20_ap_simple
+set ap_label       = ap_simple_bidsapp
 
 # subject directories
 set sdir_input     = ${dir_input}/${fsubj}
