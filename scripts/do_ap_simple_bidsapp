@@ -152,7 +152,7 @@ setenv AFNI_COMPRESSOR GZIP
 
 # dataset inputs
 set dsets_epi     = ( ${sdir_func}/${psubj}*${func_glob}*bold.nii* )
-set dset_anat_00  = ( ${sdir_anat}/${psubj}*_T1w.nii.gz )
+set dset_anat_00  = ( ${sdir_anat}/${psubj}*_T1w.nii* )
 
 # want >0 EPI
 if ( ${#dsets_epi} == 0 ) then
