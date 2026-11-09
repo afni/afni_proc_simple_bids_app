@@ -102,6 +102,7 @@ while ( $ac <= $#argv )
     # this means we are at the end of options, and should look for
     # required positional args
     else if ( "$argv[$ac]" == "--" ) then
+        @ ac ++    # increment counter, to start req args at correct index
         break
 
     # NB: no longer use this, because there are positional args
@@ -183,6 +184,7 @@ else
             goto BAD_EXIT
         endif
     end
+    cd -
 endif
 
 # =======================================================================
