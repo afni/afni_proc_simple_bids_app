@@ -30,7 +30,7 @@ set omp_nthreads  = ""         # set nthreads per process
 
 set OK_SUBJ_FAIL = 0           # by default, stop at first failed subj proc
 
-set bindir = `dirname "$0"`
+set bindir = "`dirname "$0"`"
 
 # ------------------- process options, in odd way here ---------------------
 
@@ -165,7 +165,8 @@ endif
 # get/check all subj dirs
 if ( ! ${#all_subj} ) then
     # user didn't provide list, get our own
-    cd ${dir_input}
+    cd "${dir_input}"
+    if ( $status ) goto BAD_EXIT
     set all_subj = ( sub-* )
     cd -
 
@@ -176,7 +177,8 @@ if ( ! ${#all_subj} ) then
     endif
 else
     # verify all user-entered subj IDs
-    cd ${dir_input}
+    cd "${dir_input}"
+    if ( $status ) goto BAD_EXIT
     foreach subj ( ${all_subj} )
         set ok = `python -c "import glob; print(len(glob.glob('${subj}')))"`
         if ( ! ${ok} ) then
@@ -193,32 +195,36 @@ endif
 set cmd           = ap_simple_bidsapp
 
 # basic and output need to be abs path
-cd ${dir_input}
-set dir_input = ${PWD}
+cd "${dir_input}"
+if ( $status ) goto BAD_EXIT
+set dir_input = "$PWD"
 cd -
 
 # Could be pre-created, bound mounted and not "creatable" within docker
 if ( ! -e "${dir_output}" ) then
-	\mkdir -p ${dir_output}
+	\mkdir -p "${dir_output}"
+	if ( $status ) goto BAD_EXIT
 endif
-cd ${dir_output}
-set dir_output = ${PWD}
+cd "${dir_output}"
+if ( $status ) goto BAD_EXIT
+set dir_output = "$PWD"
 cd -
 
 # upper directories
-set dir_scr       = $bindir
-set dir_swarm     = ${dir_output}/code
+set dir_scr       = "$bindir"
+set dir_swarm     = "${dir_output}/code"
 
 # running
-set scr_cmd       = ${dir_scr}/do_${cmd}
-set scr_swarm     = ${dir_swarm}/swarm_${cmd}
-set jobs_swarm    = ${scr_swarm}.jobs
+set scr_cmd       = "${dir_scr}/do_${cmd}"
+set scr_swarm     = "${dir_swarm}/swarm_${cmd}"
+set jobs_swarm    = "${scr_swarm}.jobs"
 
 # --------------------------------------------------------------------------
 # swarm script stuff
 
 # make output directory and swarm directory, if not already existing
-\mkdir -p ${dir_swarm}
+\mkdir -p "${dir_swarm}"
+if ( $status ) goto BAD_EXIT
 
 # clear away older swarm script and jobs specifications
 \rm -f "${scr_swarm}" "${jobs_swarm}"
@@ -232,7 +238,7 @@ endif
 # NB: parallel appears to be quite sensitive to the number of spaces
 # separating opts
 if ( ${DO_PARALLEL} ) then
-    cat << EOF >> ${scr_swarm}
+    cat << EOF >> "${scr_swarm}"
 #!/bin/sh
 
 base=\${0%.*}
@@ -252,7 +258,8 @@ else
 endif
 
 
-chmod a+x ${scr_swarm}
+chmod a+x "${scr_swarm}"
+if ( $status ) goto BAD_EXIT
 
 # --------------------------------------------------------------------------
 
@@ -270,10 +277,12 @@ EOF
 foreach subj ( ${all_subj} )
 
     # use python to check if we have session level
-    cd ${dir_input}/${subj}
+    cd "${dir_input}/${subj}"
+    if ( $status ) goto BAD_EXIT
     set all_ses = `python -c "import glob; print(' '.join(glob.glob('ses-*')))"`
     set nses    = ${#all_ses}
     cd -
+    if ( $status ) goto BAD_EXIT
 
     # start building options for the 'do*' script job
     if ( ${DO_PARALLEL} ) then
@@ -298,9 +307,9 @@ foreach subj ( ${all_subj} )
 
             # add job to swarm script (verbosely, and don't use '-e')
             if ( ${DO_PARALLEL} ) then
-                echo "${job} -ses ${ses}"  >> ${jobs_swarm}
+                echo "${job} -ses ${ses}"  >> "${jobs_swarm}"
             else
-                echo "${job} -ses ${ses}"  >> ${scr_swarm}
+                echo "${job} -ses ${ses}"  >> "${scr_swarm}"
             endif
         end
     else
@@ -308,23 +317,24 @@ foreach subj ( ${all_subj} )
 
         # add job to swarm script (verbosely, and don't use '-e')
         if ( ${DO_PARALLEL} ) then
-            echo "${job}"    >> ${jobs_swarm}
+            echo "${job}"    >> "${jobs_swarm}"
         else
-            echo "${job}"    >> ${scr_swarm}
+            echo "${job}"    >> "${scr_swarm}"
         endif
     endif
 end
 
 # -------------------------------------------------------------------------
 # run swarm command
-cd ${dir_scr}
+cd "${dir_scr}"
+if ( $status ) goto BAD_EXIT
 
 echo "++ And start running: ${scr_swarm}"
 
 ##exit 0
 
 # execute the script, which contains all subj to proc
-${scr_swarm}
+"${scr_swarm}"
 
 # nous sommes finis
 if ( $status ) then

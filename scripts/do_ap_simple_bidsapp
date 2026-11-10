@@ -112,19 +112,19 @@ endif
 # create full file name for subj (which might optionally include ses)
 set fsubj = ${subj}                      # filename : subj[/ses]
 set psubj = ${subj}                      # prefix   : subj[_ses]
-if ( ${ses} != "" ) then
+if ( "${ses}" != "" ) then
     set fsubj = ${fsubj}/${ses}
     set psubj = ${psubj}_${ses}
 endif
 
 # verify if subj[/ses] dir exists
-if ( ! -d ${dir_input}/${fsubj} ) then
+if ( ! -d "${dir_input}/${fsubj}" ) then
     echo "** ERROR: cannot find user-entered subj dir: ${fsubj}"
     goto BAD_EXIT
 endif
 
 # verify we can find template
-set ok = `@FindAfniDsetPath "${template}"`
+set ok = "`@FindAfniDsetPath "${template}"`"
 if ( "${ok}" == "" ) then
     echo "** ERROR: cannot find template: ${template}"
     goto BAD_EXIT
@@ -135,13 +135,13 @@ endif
 set ap_label       = ap_simple_bidsapp
 
 # subject directories
-set sdir_input     = ${dir_input}/${fsubj}
-set sdir_func      = ${sdir_input}/func
-set sdir_anat      = ${sdir_input}/anat
-set sdir_ap        = ${dir_ap}/${fsubj}
+set sdir_input     = "${dir_input}/${fsubj}"
+set sdir_func      = "${sdir_input}/func"
+set sdir_anat      = "${sdir_input}/anat"
+set sdir_ap        = "${dir_ap}/${fsubj}"
 
 # set output directory
-set sdir_out = ${sdir_ap}
+set sdir_out = "${sdir_ap}"
 set lab_out  = AP
 
 # --------------------------------------------------------------------------
@@ -151,8 +151,8 @@ set lab_out  = AP
 setenv AFNI_COMPRESSOR GZIP
 
 # dataset inputs
-set dsets_epi     = ( ${sdir_func}/${psubj}*${func_glob}*bold.nii* )
-set dset_anat_00  = ( ${sdir_anat}/${psubj}*_T1w.nii* )
+set dsets_epi     = ( "${sdir_func}/${psubj}"*${func_glob}*bold.nii* )
+set dset_anat_00  = ( "${sdir_anat}/${psubj}"*_T1w.nii* )
 
 # want >0 EPI
 if ( ${#dsets_epi} == 0 ) then
@@ -187,13 +187,15 @@ echo "++ INFO: Using ${nthr_using} of available ${nthr_avail} threads"
 # ---------------------------------------------------------------------------
 
 # make output directory and go to it
-\mkdir -p ${sdir_out}
-cd ${sdir_out}
+\mkdir -p "${sdir_out}"
+if ( $status ) goto BAD_EXIT
+cd "${sdir_out}"
+if ( $status ) goto BAD_EXIT
 
 # create command script
 set run_script = ap.cmd.${psubj}
 
-cat << EOF >! ${run_script}
+cat << EOF >! "${run_script}"
 
 # AP, run simple
 #
