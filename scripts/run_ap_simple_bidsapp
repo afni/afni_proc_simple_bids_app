@@ -196,12 +196,11 @@ if ( ! ${#all_subj} ) then
         goto BAD_EXIT
     endif
 else
-    # verify all user-entered subj IDs
+    # verify all user-entered subj IDs, which should/must be dirs
     cd "${dir_input}"
     if ( $status ) goto BAD_EXIT
     foreach subj ( ${all_subj} )
-        set ok = `python -c "import glob; print(len(glob.glob('${subj}')))"`
-        if ( ! ${ok} ) then
+        if ( ! -d "${subj}" ) then
             echo "** ERROR: cannot find user-entered subj dir: ${subj}"
             goto BAD_EXIT
         endif
