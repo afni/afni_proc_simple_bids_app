@@ -9,7 +9,8 @@
 # To execute:
 #     tcsh RUN_SCRIPT_NAME
 
-set version = 0.2  ; set rev_dat = "June 22, 2024"
+#set version = 0.2  ; set rev_dat = "June 22, 2024"
+set version = 0.3  ; set rev_dat = "Nov 13, 2026"
 
 # --------------------------------------------------------------------------
 
@@ -31,6 +32,7 @@ set omp_nthreads  = ""         # set nthreads per process
 set OK_SUBJ_FAIL = 0           # by default, stop at first failed subj proc
 
 set bindir = "`dirname "$0"`"
+if ( "$bindir" !~ /* ) set bindir = "$cwd/$bindir"
 
 # ------------------- process options, in odd way here ---------------------
 
@@ -66,7 +68,10 @@ while ( $ac <= $#argv )
         # keep adding to list until another option or end of inputs
         while ( $ac <= $#argv )
             if ( "`echo $argv[$ac] | cut -b 1`" == "-" ) break
-            set all_subj = ( ${all_subj} $argv[$ac] )
+            set subj = "$argv[$ac]"
+            # allow selection by just number part of subj ID
+            if ( "$subj" !~ sub-* ) set subj = sub-${subj}
+            set all_subj = ( ${all_subj} "$subj" )
             @ ac ++
         end
         # now at arg not belonging to this opt
@@ -143,6 +148,11 @@ else if ( "`echo ${level_var} | cut -b 1`" == "-" ) then
     goto BAD_EXIT
 endif
 
+if ( "${level_var}" != "participant" ) then
+    echo "** ERROR: only participant analysis is implemented, not: ${level_var}"
+    goto BAD_EXIT
+endif
+
 # =======================================================================
 # ======================== ** Verify + setup ** =========================
 # =======================================================================
@@ -160,6 +170,13 @@ endif
 if ( "${dir_output}" == "" ) then
     echo "** ERROR: need to provide output dir name with '--dir_output ..'"
     goto BAD_EXIT
+endif
+
+# Preserve relative template paths before changing directories.
+if ( "$template" !~ /* ) then
+    if ( -e "$template" || -e "${template}.HEAD" || "$template" =~ */* ) then
+        set template = "$cwd/$template"
+    endif
 endif
 
 # get/check all subj dirs
@@ -241,7 +258,8 @@ if ( ${DO_PARALLEL} ) then
     cat << EOF >> "${scr_swarm}"
 #!/bin/sh
 
-base=\${0%.*}
+# save script's invocation path
+base=\$0
 
 cat "\${base}.jobs" \
 | parallel -C ' ' $parallel_opts --jl "\${base}.log" \
@@ -377,15 +395,13 @@ DIR_INPUT         : input/top dir of BIDS-format data collection
 
 DIR_OUTPUT        : output dirname for afni_proc.py BIDS-derivatives
 
-LABEL             : exactly one of the following strings, specifying the
-                    level of analysis:
-                      participant
-                      group
+LABEL             : must be 'participant'; group analysis is not implemented
 
 Options that can be added:
 
 --participant_label  SUBJ1 [SUBJ2 SUBJ3 ...]
-                  : user can input one or more subject IDs to process.
+                  : user can input one or more subject IDs to process,
+                    with or without the 'sub-' prefix.
                     NB: using this, you might need to include a separator
                     option '--' at the end of this list, if this option
                     is used just before the positional arguments
