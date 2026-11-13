@@ -65,6 +65,7 @@ while ( $ac <= $#argv )
     else if ( "$argv[$ac]" == "--participant_label" ) then
         if ( $ac >= $#argv ) goto FAIL_MISSING_ARG
         @ ac += 1
+        set nsubj_before = ${#all_subj}
         # keep adding to list until another option or end of inputs
         while ( $ac <= $#argv )
             if ( "`echo $argv[$ac] | cut -b 1`" == "-" ) break
@@ -76,6 +77,7 @@ while ( $ac <= $#argv )
         end
         # now at arg not belonging to this opt
         @ ac -= 1
+        if ( ${#all_subj} == ${nsubj_before} ) goto FAIL_MISSING_ARG
 
     else if ( "$argv[$ac]" == "--func_glob" ) then
         if ( $ac >= $#argv ) goto FAIL_MISSING_ARG
@@ -186,6 +188,7 @@ if ( ! ${#all_subj} ) then
     if ( $status ) goto BAD_EXIT
     set all_subj = ( sub-* )
     cd -
+    if ( ${status} ) goto BAD_EXIT
 
     # must have at least one
     if ( ! ${#all_subj} ) then
@@ -204,6 +207,7 @@ else
         endif
     end
     cd -
+    if ( ${status} ) goto BAD_EXIT
 endif
 
 # =======================================================================
@@ -216,6 +220,7 @@ cd "${dir_input}"
 if ( $status ) goto BAD_EXIT
 set dir_input = "$PWD"
 cd -
+if ( ${status} ) goto BAD_EXIT
 
 # Could be pre-created, bound mounted and not "creatable" within docker
 if ( ! -e "${dir_output}" ) then
@@ -226,6 +231,7 @@ cd "${dir_output}"
 if ( $status ) goto BAD_EXIT
 set dir_output = "$PWD"
 cd -
+if ( ${status} ) goto BAD_EXIT
 
 # upper directories
 set dir_scr       = "$bindir"
@@ -261,18 +267,24 @@ if ( ${DO_PARALLEL} ) then
 # save script's invocation path
 base=\$0
 
-cat "\${base}.jobs" \
-| parallel -C ' ' $parallel_opts --jl "\${base}.log" \
-     tcsh -xf ${scr_cmd} -dir_input ${dir_input} -dir_output ${dir_output}
+parallel -q -C ' ' ${parallel_opts} --jl "\${base}.log" \
+     tcsh -xf "${scr_cmd}" -dir_input "${dir_input}" \
+     -dir_output "${dir_output}" \
+     -func_glob "${func_glob}" -template "${template}" \
+     :::: "\${base}.jobs"
 EOF
 
 else
-    # if parallel is off, then start with swarm  empty file
-    printf "" > ${scr_swarm}
+    # if parallel is off, init tcsh script that remembers subject failures
+    printf '%s\n' '#!/bin/tcsh -f' 'set ecode = 0' > "${scr_swarm}"
 
     # and each line gets this command to start
-    set job0 = "tcsh -xf ${scr_cmd} -dir_input ${dir_input} "
-    set job0 = " ${job0} -dir_output ${dir_output}"
+    set job0 = "tcsh -xf '${scr_cmd}' -dir_input '${dir_input}' "
+    set job0 = "${job0} -dir_output '${dir_output}'"
+    set job0 = "${job0} -func_glob '${func_glob}' -template '${template}'"
+
+    set job_fail = " || exit 1"
+    if ( ${OK_SUBJ_FAIL} ) set job_fail = " || set ecode = 1"
 endif
 
 
@@ -309,14 +321,6 @@ foreach subj ( ${all_subj} )
         set job = "${job0} -subj ${subj}"
     endif
 
-    if ( "${func_glob}" != "" ) then
-        set job = "${job} -func_glob ${func_glob}"
-    endif
-
-    if ( "${template}" != "" ) then
-        set job = "${job} -template ${template}"
-    endif
-
     # loop over ses ID, if present
     if ( ${nses} ) then
         # loop over all ses
@@ -325,9 +329,9 @@ foreach subj ( ${all_subj} )
 
             # add job to swarm script (verbosely, and don't use '-e')
             if ( ${DO_PARALLEL} ) then
-                echo "${job} -ses ${ses}"  >> "${jobs_swarm}"
+                printf '%s\n' "${job} -ses ${ses}"  >> "${jobs_swarm}"
             else
-                echo "${job} -ses ${ses}"  >> "${scr_swarm}"
+                printf '%s\n' "${job} -ses ${ses}${job_fail}"  >> "${scr_swarm}"
             endif
         end
     else
@@ -335,12 +339,16 @@ foreach subj ( ${all_subj} )
 
         # add job to swarm script (verbosely, and don't use '-e')
         if ( ${DO_PARALLEL} ) then
-            echo "${job}"    >> "${jobs_swarm}"
+            printf '%s\n' "${job}"    >> "${jobs_swarm}"
         else
-            echo "${job}"    >> "${scr_swarm}"
+            printf '%s\n' "${job}${job_fail}"    >> "${scr_swarm}"
         endif
     endif
 end
+
+if ( ! ${DO_PARALLEL} ) then
+    echo 'exit ${ecode}' >> "${scr_swarm}"
+endif
 
 # -------------------------------------------------------------------------
 # run swarm command

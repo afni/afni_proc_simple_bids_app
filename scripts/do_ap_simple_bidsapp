@@ -9,6 +9,8 @@
 
 set version = 0.3  ; set rev_dat = "Nov 13, 2026"
 
+# used in help
+set ap_label       = ap_simple_bidsapp
 
 # initial exit code; we don't exit at fail, to copy partial results back
 set ecode = 0
@@ -143,8 +145,6 @@ endif
 
 # =======================================================================
 
-set ap_label       = ap_simple_bidsapp
-
 # subject directories
 set sdir_input     = "${dir_input}/${fsubj}"
 set sdir_func      = "${sdir_input}/func"
@@ -222,7 +222,7 @@ cat << EOF >! "${run_script}"
 
 ap_run_simple_rest.tcsh                                                \
     -run_ap                                                            \
-    -subjid      ${subj}                                               \
+    -subjid      "${subj}"                                             \
     -anat        "${dset_anat_00}"                                     \
     -epi         ${dsets_epi:q}                                        \
     -template    "${template}"
