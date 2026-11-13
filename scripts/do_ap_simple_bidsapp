@@ -1,10 +1,13 @@
 #!/bin/tcsh
 
 # AP simple: run afni_proc.py for full FMRI processing (for initial QC)
-
+#
 # Process a single subj+ses pair.
-
+#
 # This is a Desktop script.  Run it via partner run*.tcsh.
+# ---------------------------------------------------------------------------
+
+set version = 0.3  ; set rev_dat = "Nov 13, 2026"
 
 
 # initial exit code; we don't exit at fail, to copy partial results back
@@ -109,6 +112,14 @@ if ( "${subj}" == "" ) then
     goto BAD_EXIT
 endif
 
+# Keep input and local template paths valid after changing directories.
+if ( "$dir_input" !~ /* ) set dir_input = "$cwd/$dir_input"
+if ( "$template" !~ /* ) then
+    if ( -e "$template" || -e "${template}.HEAD" || "$template" =~ */* ) then
+        set template = "$cwd/$template"
+    endif
+endif
+
 # create full file name for subj (which might optionally include ses)
 set fsubj = ${subj}                      # filename : subj[/ses]
 set psubj = ${subj}                      # prefix   : subj[_ses]
@@ -188,9 +199,16 @@ echo "++ INFO: Using ${nthr_using} of available ${nthr_avail} threads"
 
 # make output directory and go to it
 \mkdir -p "${sdir_out}"
-if ( $status ) goto BAD_EXIT
+if ( $status ) then
+    set ecode = -1
+    goto BAD_EXIT
+endif
+
 cd "${sdir_out}"
-if ( $status ) goto BAD_EXIT
+if ( $status ) then
+    set ecode = -2
+    goto BAD_EXIT
+endif
 
 # create command script
 set run_script = ap.cmd.${psubj}
@@ -293,8 +311,6 @@ Options ~1~
 -ver             : display program version
 
 -help            : show help
-
--hview           : show help in text editor
 
 -------------------------------------------------------------------------
 
