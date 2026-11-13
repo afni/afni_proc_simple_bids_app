@@ -267,6 +267,7 @@ if ( ${DO_PARALLEL} ) then
 # save script's invocation path
 base=\$0
 
+# NB: the '::::' means 'read job inputs from the following file'
 parallel -q -C ' ' ${parallel_opts} --jl "\${base}.log" \
      tcsh -xf "${scr_cmd}" -dir_input "${dir_input}" \
      -dir_output "${dir_output}" \
